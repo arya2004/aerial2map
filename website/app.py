@@ -5,10 +5,12 @@ from torchvision import transforms
 import numpy as np
 import torch.nn as nn
 
-st.title("Artificial Intelligence Course Project Aerial Image to Map")
-st.title("By TY-52")
+# Streamlit app title and description
+st.title("Aerial Image to Map Translator")
+st.subheader("AI Course Project by TY-52")
 st.write("Upload an aerial image, and the app will generate the corresponding map using a Pix2Pix GAN model.")
 
+# File uploader for user to upload images
 uploaded_file = st.file_uploader("Choose an aerial image...", type=["jpg", "jpeg", "png"])
 
 # U-NET
@@ -136,48 +138,39 @@ class UNet(nn.Module):
         xn = self.downfeature(x12)
         return self.sigmoid(xn)
 
+# Initialize the model and load weights
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+gen_model = UNet(input_channels=3, output_channels=3).to(device)
+
+try:
+    gen_model.load_state_dict(torch.load("pix2pix_15000.pth", map_location=device))
+except FileNotFoundError:
+    st.error("Model weights file 'pix2pix_15000.pth' not found. Please upload the correct file.")
+    st.stop()
+
+transform = transforms.Compose([
+    transforms.Resize((256, 256)),
+    transforms.ToTensor(),
+    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+])
+
+# Run prediction if file uploaded
 if uploaded_file is not None:
-    image = Image.open(uploaded_file).convert('RGB')
-    st.image(image, caption='Uploaded Image', use_column_width=True)
-    st.write("Processing...")
-
-    # Load the model and weights
-    input_dim = 3
-    real_dim = 3
-    target_shape = 256
-    device = torch.device('cpu')
-
-    # Initialize the model
-    gen = UNet(input_channels=input_dim, output_channels=real_dim).to(device)
-
-    # Load the model weights
-    try:
-        loaded_state = torch.load("pix2pix_15000.pth", map_location=device)
-        gen.load_state_dict(loaded_state["gen"])
-    except FileNotFoundError:
-        st.error("Model weights file 'pix2pix_15000.pth' not found.")
-        st.stop()
-
-    # Define the transform
-    transform = transforms.Compose([
-        transforms.Resize((target_shape, target_shape)),
-        transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-    ])
-
-    # Preprocess the image
+    # Display uploaded image
+    image = Image.open(uploaded_file).convert("RGB")
+    st.image(image, caption="Uploaded Image", use_column_width=True)
+    
+    # Preprocess image
     image_tensor = transform(image).unsqueeze(0).to(device)
-
-    # Generate the output
+    
+    st.write("Processing image...")
+    
+    # Generate map output with the model
     with torch.no_grad():
-        output = gen(image_tensor)
-
-    # Convert the output tensor to an image
-    output_image = output.squeeze(0).permute(1, 2, 0).cpu()
-    output_image = (output_image * 0.5 + 0.5).clamp(0, 1)
-    output_image_np = output_image.numpy()
-
-    # Convert to PIL Image
-    output_pil = Image.fromarray((output_image_np * 255).astype(np.uint8))
-
-    st.image(output_pil, caption='Output Image', use_column_width=True)
+        output = gen_model(image_tensor)
+    
+    # Convert output to image
+    output_image = (output.squeeze().permute(1, 2, 0).cpu().numpy() * 0.5 + 0.5).clip(0, 1)
+    output_pil = Image.fromarray((output_image * 255).astype(np.uint8))
+    
+    st.image(output_pil, caption="Generated Map", use_column_width=True)
